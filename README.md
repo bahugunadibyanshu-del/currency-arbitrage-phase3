@@ -1,5 +1,5 @@
 # Currency Arbitrage: Finding the Best Profitable Route
-**Part 1:** C++ (OOP) builds the market graph. **Part 2:** C (DSA) finds the best route. **Phase 3 addition:** enter a starting amount and inspect fee and spread deductions at every conversion.
+**Part 1:** C++ (OOP) builds the market graph. **Part 2:** C (DSA) finds the best route. **Phase 3 additions:** enter a starting amount, inspect fee and spread deductions, and rank routes using volatility and liquidity scores.
 
 ## How to run in VS Code
 
@@ -30,13 +30,15 @@ clang arbitrage.c -o arbitrage -lm
 
 | File | Job |
 |---|---|
-| `market_builder.cpp` | Classes `LiveRateProvider`, `MarketConditions`, `MarketDataBuilder`. Downloads USD-based rates, derives all 72 cross-rates, applies 0.10% fee + 0.10% spread, writes `edges.csv`. |
-| `arbitrage.c` | Loads `edges.csv`. **Step 1:** Bellman-Ford on `cost = -ln(rate)` says whether any profitable cycle exists. **Step 2:** a depth-first search checks every 3- and 4-step round trip and ranks them to find the *best* route. |
+| `market_builder.cpp` | Classes `LiveRateProvider`, `MarketConditions`, `MarketDataBuilder`. Downloads USD-based rates, derives all 72 cross-rates, applies 0.10% fee + 0.10% spread, adds clearly labelled simulated volatility and liquidity scores, and writes `edges.csv`. |
+| `arbitrage.c` | Loads `edges.csv`. **Step 1:** Bellman-Ford checks for a profitable cycle. **Step 2:** depth-first search checks short round trips. Routes are ranked by net return adjusted for simulated volatility and liquidity. The walkthrough shows gross amount, fee, spread, net amount, and route risk scores. |
 | `run.sh` | Compiles and runs both. |
 
-Why two steps? Bellman-Ford only tells you *whether* a profitable cycle exists, not which one is best. The route search ranks them by return.
+Why two steps? Bellman-Ford only tells you *whether* a profitable cycle exists, not which one is best. The route search compares the cycles and ranks them.
 
-When the C analyzer starts, enter a positive starting amount. The same numeric amount is evaluated for each route in that route's starting currency. The route walkthrough shows the gross converted amount, fee deduction, spread deduction, and net amount for every leg. The route ranking remains based on the net percentage return, so changing the starting amount changes the displayed amounts but not the ranking.
+When the C analyzer starts, enter a positive starting amount. The same numeric amount is evaluated for each route in that route's starting currency. The route walkthrough shows the gross converted amount, fee deduction, spread deduction, and net amount for every leg.
+
+The route's average volatility risk and average liquidity are scored from 0 to 100. The builder assigns fixed classroom simulation values by currency; these scores do not come from the rate API. Higher volatility and lower liquidity increase a route penalty. The analyzer uses `risk-adjusted score = net multiplier * (1 - penalty percent / 100)`, where `penalty percent = 0.04 * (average volatility + 100 - average liquidity)`. Routes are ranked by this score, while a profitable route still means its net multiplier is above 1.0.
 
 ## Expected output
 
@@ -55,6 +57,10 @@ BEST PROFITABLE ROUTE
   EUR -> JPY -> INR -> GBP -> EUR
   Start with 1000.00 EUR
   EUR -> JPY at ...: gross ..., fee ..., spread ..., net ... JPY
+  Average volatility risk: .../100
+  Average liquidity: .../100
+  Risk penalty: ...%
+  Risk-adjusted score: ...%
   ...
   Net change: +27.0465 EUR (+2.7047%)
 ```

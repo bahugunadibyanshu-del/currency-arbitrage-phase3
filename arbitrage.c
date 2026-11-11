@@ -17,6 +17,7 @@
 #define MAX_STEPS 4
 #define CODE_LEN 4
 #define LINE_LEN 512
+#define RISK_WEIGHT_PERCENT 0.04
 
 typedef struct {
     char code[CODE_LEN];
@@ -25,12 +26,17 @@ typedef struct {
 typedef struct {
     int from, to;
     double rate, fee, spread, effectiveRate, cost;
+    double volatilityScore, liquidityScore;
 } Edge;
 
 typedef struct {
     int path[MAX_STEPS];   /* currencies in order; we return to path[0] at the end */
     int length;
     double multiplier;
+    double riskAdjustedScore;
+    double averageVolatility;
+    double averageLiquidity;
+    double riskPenaltyPercent;
 } Route;
 
 static Currency currencies[MAX_CURRENCIES];
@@ -64,9 +70,10 @@ static int loadGraph(const char *filename) {
 
     while (fgets(line, sizeof(line), file)) {
         char from[CODE_LEN], to[CODE_LEN];
-        double rate, fee, spread, eff, cost;
-        if (sscanf(line, "%3[^,],%3[^,],%lf,%lf,%lf,%lf,%lf",
-                   from, to, &rate, &fee, &spread, &eff, &cost) != 7)
+        double rate, fee, spread, eff, cost, volatility, liquidity;
+        if (sscanf(line, "%3[^,],%3[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                   from, to, &rate, &fee, &spread, &eff, &cost,
+                   &volatility, &liquidity) != 9)
             continue;
         if (edgeCount >= MAX_EDGES) {
             fprintf(stderr, "Too many edges for this program.\n");
@@ -75,7 +82,7 @@ static int loadGraph(const char *filename) {
         }
         int u = currencyIndex(from), v = currencyIndex(to);
         if (u < 0 || v < 0) { fclose(file); return 0; }
-        edges[edgeCount++] = (Edge){u, v, rate, fee, spread, eff, cost};
+        edges[edgeCount++] = (Edge){u, v, rate, fee, spread, eff, cost, volatility, liquidity};
         effective[u][v] = eff;
     }
     fclose(file);
@@ -130,12 +137,31 @@ static int hasNegativeCycle(void) {
 
 static void saveRoute(const int path[], int length) {
     if (routeCount >= MAX_CYCLES) return;
-    double m = 1.0;
-    for (int i = 0; i < length; i++)
-        m *= effective[path[i]][path[(i + 1) % length]];
+    double m = 1.0, volatilityTotal = 0.0, liquidityTotal = 0.0;
+    for (int i = 0; i < length; i++) {
+        int from = path[i], to = path[(i + 1) % length];
+        const Edge *edge = NULL;
+        for (int e = 0; e < edgeCount; e++) {
+            if (edges[e].from == from && edges[e].to == to) {
+                edge = &edges[e];
+                break;
+            }
+        }
+        if (!edge) return;
+        m *= effective[from][to];
+        volatilityTotal += edge->volatilityScore;
+        liquidityTotal += edge->liquidityScore;
+    }
+    double averageVolatility = volatilityTotal / length;
+    double averageLiquidity = liquidityTotal / length;
+    double penaltyPercent = RISK_WEIGHT_PERCENT * (averageVolatility + (100.0 - averageLiquidity));
     memcpy(routes[routeCount].path, path, length * sizeof(int));
     routes[routeCount].length = length;
     routes[routeCount].multiplier = m;
+    routes[routeCount].averageVolatility = averageVolatility;
+    routes[routeCount].averageLiquidity = averageLiquidity;
+    routes[routeCount].riskPenaltyPercent = penaltyPercent;
+    routes[routeCount].riskAdjustedScore = m * (1.0 - penaltyPercent / 100.0);
     routeCount++;
 }
 
@@ -156,8 +182,8 @@ static void explore(int path[], int depth, int visited[]) {
 }
 
 static int compareRoutes(const void *a, const void *b) {
-    double x = ((const Route *)a)->multiplier, y = ((const Route *)b)->multiplier;
-    return (y > x) - (y < x);   /* highest multiplier first */
+    double x = ((const Route *)a)->riskAdjustedScore, y = ((const Route *)b)->riskAdjustedScore;
+    return (y > x) - (y < x);   /* highest risk-adjusted score first */
 }
 
 static void printRoute(const Route *r) {
@@ -184,6 +210,10 @@ static void printWalkthrough(const Route *r, double startAmount) {
     }
     printf("  Net change: %+.4f %s (%+.4f%%)\n", amount - startAmount,
            currencies[r->path[0]].code, (amount / startAmount - 1.0) * 100.0);
+    printf("  Average volatility risk: %.1f/100\n", r->averageVolatility);
+    printf("  Average liquidity: %.1f/100\n", r->averageLiquidity);
+    printf("  Risk penalty: %.2f%%\n", r->riskPenaltyPercent);
+    printf("  Risk-adjusted score: %+.4f%%\n", (r->riskAdjustedScore - 1.0) * 100.0);
 }
 
 int main(void) {
@@ -225,20 +255,28 @@ int main(void) {
     if (routeCount == 0) { puts("  No routes to rank."); return 0; }
 
     if (profitable > 0) {
+        int bestProfitable = 0;
+        while (bestProfitable < routeCount && routes[bestProfitable].multiplier <= 1.0)
+            bestProfitable++;
         puts("\nBEST PROFITABLE ROUTE");
         printf("  ");
-        printRoute(&routes[0]);
-        printWalkthrough(&routes[0], startAmount);
+        printRoute(&routes[bestProfitable]);
+        printWalkthrough(&routes[bestProfitable], startAmount);
 
-        puts("\nTOP ROUTES");
-        int show = profitable < 5 ? profitable : 5;
-        for (int i = 0; i < show; i++) {
-            printf("  #%d  %+.4f%%   ", i + 1, (routes[i].multiplier - 1.0) * 100.0);
+        puts("\nTOP PROFITABLE ROUTES (RISK-ADJUSTED SCORE)");
+        int shown = 0;
+        for (int i = 0; i < routeCount && shown < 5; i++) {
+            if (routes[i].multiplier <= 1.0) continue;
+            printf("  #%d  net %+.4f%%, adjusted %+.4f%%, volatility %.1f, liquidity %.1f   ",
+                   shown + 1, (routes[i].multiplier - 1.0) * 100.0,
+                   (routes[i].riskAdjustedScore - 1.0) * 100.0,
+                   routes[i].averageVolatility, routes[i].averageLiquidity);
             printRoute(&routes[i]);
+            shown++;
         }
     } else {
         puts("\nNO PROFITABLE ROUTE EXISTS in this data.");
-        puts("Closest round trip (smallest loss), shown for comparison:");
+        puts("Highest risk-adjusted route, shown for comparison:");
         printf("  ");
         printRoute(&routes[0]);
         printWalkthrough(&routes[0], startAmount);
@@ -247,6 +285,8 @@ int main(void) {
     }
 
     puts("\nMethod: Bellman-Ford with cost = -ln(effective rate), then exhaustive search of short cycles.");
+    puts("Route ranking uses net return with simulated volatility and low-liquidity penalties.");
+    puts("Volatility and liquidity scores are classroom assumptions, not live market measurements.");
     puts("Reminder: reference rates are not executable quotes. This is not trading advice.");
     return 0;
 }

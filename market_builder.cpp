@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -13,7 +14,36 @@ using namespace std;
 struct Currency {
     string code;
     double unitsPerUSD;
+    double volatilityScore;
+    double liquidityScore;
 };
+
+/* Classroom simulation scores, not measurements supplied by the rate API. */
+static double simulatedVolatility(const string &code) {
+    if (code == "USD") return 15.0;
+    if (code == "EUR") return 18.0;
+    if (code == "GBP") return 30.0;
+    if (code == "INR") return 45.0;
+    if (code == "JPY") return 22.0;
+    if (code == "CAD") return 20.0;
+    if (code == "AUD") return 28.0;
+    if (code == "CHF") return 16.0;
+    if (code == "SGD") return 18.0;
+    return 35.0;
+}
+
+static double simulatedLiquidity(const string &code) {
+    if (code == "USD") return 95.0;
+    if (code == "EUR") return 90.0;
+    if (code == "GBP") return 85.0;
+    if (code == "INR") return 65.0;
+    if (code == "JPY") return 88.0;
+    if (code == "CAD") return 78.0;
+    if (code == "AUD") return 75.0;
+    if (code == "CHF") return 80.0;
+    if (code == "SGD") return 72.0;
+    return 60.0;
+}
 
 
 class LiveRateProvider {
@@ -105,16 +135,19 @@ public:
                 cerr << "API response did not contain a valid rate for " << code << ".\n";
                 return false;
             }
-            currencies.push_back({code, rate});
+            currencies.push_back({code, rate, simulatedVolatility(code), simulatedLiquidity(code)});
         }
         return true;
     }
 
     void showRates() const {
-        cout << "\nREFERENCE RATES (units of currency per 1 USD)\n";
+        cout << "\nREFERENCE RATES AND SIMULATED MARKET SCORES\n";
+        cout << "  Rates are units of currency per 1 USD; scores range from 0 to 100.\n";
         cout << fixed << setprecision(6);
         for (const Currency &c : currencies)
-            cout << "  " << left << setw(6) << c.code << right << setw(14) << c.unitsPerUSD << '\n';
+            cout << "  " << left << setw(6) << c.code << right << setw(14) << c.unitsPerUSD
+                 << "  volatility " << setw(5) << c.volatilityScore
+                 << "  liquidity " << setw(5) << c.liquidityScore << '\n';
     }
 
     bool writeEdges(const MarketConditions &market, const string &filename) const {
@@ -123,7 +156,7 @@ public:
             cerr << "Could not create " << filename << ". Check folder permissions.\n";
             return false;
         }
-        out << "from,to,rate,fee_percent,spread_percent,effective_rate,cost\n";
+        out << "from,to,rate,fee_percent,spread_percent,effective_rate,cost,volatility_score,liquidity_score\n";
         out << setprecision(12);
         for (size_t i = 0; i < currencies.size(); i++) {
             for (size_t j = 0; j < currencies.size(); j++) {
@@ -131,9 +164,11 @@ public:
                 double cross = currencies[j].unitsPerUSD / currencies[i].unitsPerUSD;
                 cross *= demoFactor(currencies[i].code, currencies[j].code);
                 double effective = market.effectiveRate(cross);
+                double volatility = (currencies[i].volatilityScore + currencies[j].volatilityScore) / 2.0;
+                double liquidity = min(currencies[i].liquidityScore, currencies[j].liquidityScore);
                 out << currencies[i].code << ',' << currencies[j].code << ',' << cross << ','
                     << market.fee() << ',' << market.spread() << ',' << effective << ','
-                    << -log(effective) << '\n';
+                    << -log(effective) << ',' << volatility << ',' << liquidity << '\n';
             }
         }
         return true;
