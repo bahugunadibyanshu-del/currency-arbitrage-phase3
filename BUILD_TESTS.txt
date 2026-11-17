@@ -1,0 +1,8 @@
+Build verification (Linux sandbox):
+- C graph compile: PASS (gcc -std=c11 -Wall -Wextra -pedantic)
+- C++ integrated application compile/link: PASS (g++ -std=c++17, links C object)
+- Sample mode run: PASS; reports 10 simple cycles from USD and ranks by estimated net return.
+- Automated C unit tests: PASS, 5/5.
+- Invalid menu input: PASS; rejects input and exits with error.
+- API failure handling: PASS; curl could not resolve api.frankfurter.dev in this sandbox, program reported failure and offered retry/sample/exit.
+- Live API success: NOT VERIFIED here because DNS/network access is unavailable in the sandbox. Run mode 1 on an internet-connected machine before claiming live retrieval.

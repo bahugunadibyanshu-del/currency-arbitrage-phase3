@@ -1,0 +1,46 @@
+CURRENCY ARBITRAGE WITH MARKET-CONDITION-AWARE ROUTE SELECTION
+1. Retrieve latest available reference rates
+2. Use fictional sample data for testing
+Choose mode (1/2): 
+Data source: Fictional test data (not live)
+Rate observation date: TEST DATA
+Retrieved at: not applicable; static sample
+Freshness: TEST DATA
+Selection strategy: Highest estimated net return after per-leg costs
+Fee assumption per conversion: 0.1% (illustrative; not API-supplied)
+Spread assumption per conversion: 0.1% (illustrative; not API bid/ask)
+Liquidity/slippage: unavailable; not fabricated
+Sample route graph rates (fictional; not live market data):
+USD->EUR 0.900000, EUR->GBP 0.850000, GBP->USD 1.350000
+USD->JPY 150.000000, JPY->EUR 0.006000, EUR->USD 1.100000
+
+Starting currency (USD/EUR/GBP/INR/JPY): Starting amount (positive number): 
+Graph: 5 currencies, 12 directed conversions.
+Bellman-Ford negative cycle indicator after assumed fees/spread: cycle detected
+Complete simple cycles checked: 10 (limited to at most 5 conversions).
+
+ROUTE COMPARISON (sorted by estimated net profit)
+Route                              Final net   Profit/loss   Return %
+USD->EUR->GBP->USD                   1026.57         26.57      2.6569
+USD->JPY->EUR->GBP->USD              1024.52         24.52      2.4517
+USD->GBP->USD                        1021.90         21.90      2.1902
+USD->EUR->USD                         986.05        -13.95     -1.3954
+USD->JPY->EUR->USD                    984.07        -15.93     -1.5925
+USD->JPY->USD                         978.58        -21.42     -2.1424
+USD->INR->USD                         975.49        -24.51     -2.4512
+USD->EUR->JPY->USD                    966.85        -33.15     -3.3146
+USD->GBP->EUR->USD                    963.96        -36.04     -3.6044
+USD->GBP->EUR->JPY->USD               945.19        -54.81     -5.4806
+
+BEST FEASIBLE ROUTE DETAILS
+
+Route: USD -> EUR -> GBP -> USD
+  Starting amount:       USD 1000.00
+  Final before costs:    USD 1032.75
+  Final after costs:     USD 1026.57
+  Estimated cost impact: USD 6.18
+  Net profit/loss:       USD 26.57
+  Net return:            2.6569%
+  Status:                Estimated opportunity (not guaranteed)
+
+Important: Frankfurter publishes daily mid-market/reference data, not executable bid/ask quotes. The assumed fee/spread are placeholders. A detected result is educational only, not a guaranteed real-world arbitrage.
